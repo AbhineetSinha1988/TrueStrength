@@ -1,0 +1,28 @@
+{
+  "name": "@abhineet/openclaw-formcheck",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Exercise form correction plugin for OpenClaw — analyzes squat, bench press, and deadlift videos via WhatsApp",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "setup": "bash setup.sh"
+  },
+  "openclaw": {
+    "extensions": [
+      "./dist/index.js"
+    ],
+    "compat": {
+      "pluginApi": ">=2026.3.24-beta.2",
+      "minGatewayVersion": "2026.3.24-beta.2"
+    }
+  },
+  "dependencies": {
+    "@sinclair/typebox": "^0.32.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.2",
+    "typescript": "^5.4.0"
+  }
+}

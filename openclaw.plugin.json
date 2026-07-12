@@ -1,0 +1,31 @@
+{
+  "id": "formcheck",
+  "name": "FormCheck — Exercise Form Analyzer",
+  "description": "Analyzes exercise videos for technique corrections. Supports squats, bench press, and deadlifts. Uses MediaPipe pose estimation + Claude Vision for biomechanical analysis.",
+  "contracts": {
+    "tools": [
+      "analyze_exercise_form"
+    ]
+  },
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "pythonPath": {
+        "type": "string",
+        "description": "Path to Python executable with MediaPipe installed",
+        "default": "python3"
+      },
+      "maxFrames": {
+        "type": "number",
+        "description": "Maximum frames to extract from video for analysis",
+        "default": 8
+      },
+      "tempDir": {
+        "type": "string",
+        "description": "Directory for temporary video/frame files",
+        "default": "/tmp/formcheck"
+      }
+    },
+    "additionalProperties": false
+  }
+}

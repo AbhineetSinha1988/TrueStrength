@@ -1,0 +1,50 @@
+// OpenClaw configuration for FormCheck
+// Copy this to ~/.openclaw/openclaw.json
+{
+  // ── Agent Defaults ─────────────────────────────────────────────────────
+  agents: {
+    defaults: {
+      // Use Claude as the primary model
+      model: "anthropic/claude-sonnet-4-5",
+    },
+  },
+
+  // ── WhatsApp Channel ───────────────────────────────────────────────────
+  channels: {
+    whatsapp: {
+      enabled: true,
+
+      // CRITICAL: selfChatMode restricts the bot to ONLY respond when you
+      // message yourself ("Note to Self" / your own number). Without this,
+      // OpenClaw sits on your personal WhatsApp account and may auto-reply
+      // to inbound DMs from other people.
+      selfChatMode: true,
+
+      // Strict allowlist — only your own number can talk to the bot.
+      dmPolicy: "allowlist",
+      allowFrom: ["+YOUR_PHONE_NUMBER"],
+
+      // No group support needed for personal use
+      groupPolicy: "disabled",
+
+      // Video files can be up to 50MB
+      mediaMaxMb: 50,
+    },
+  },
+
+  // ── Tools ──────────────────────────────────────────────────────────────
+  tools: {
+    allow: ["analyze_exercise_form"],
+  },
+
+  // ── Session ────────────────────────────────────────────────────────────
+  session: {
+    // Each WhatsApp contact gets their own session
+    scope: "per-sender",
+  },
+
+  // ── Gateway ────────────────────────────────────────────────────────────
+  gateway: {
+    mode: "local",
+  },
+}

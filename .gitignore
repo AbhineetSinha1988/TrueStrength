@@ -1,0 +1,18 @@
+# deps / envs
+node_modules/
+.venv/
+python/.venv/
+__pycache__/
+*.pyc
+
+# build output
+dist/
+*.js.map
+
+# large model files (downloaded by setup.sh / web/run.sh)
+python/models/
+
+# local artifacts
+.DS_Store
+/tmp/
+web/tmp/

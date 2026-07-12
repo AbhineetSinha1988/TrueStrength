@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>True Strength — Send your lift. Get coached.</title>
+<style>
+  :root{
+    --bg:#0b0d10; --card:#14171c; --card2:#1a1e25; --line:#262b33;
+    --text:#f2f3f5; --muted:#9aa3ad; --accent:#ff4d2e; --accent-dim:#c93a22;
+    --ok:#3ecf8e; --warn:#f5b942; --bad:#ff5c5c;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
+  body{margin:0; background:var(--bg); color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    line-height:1.45; padding-bottom:60px}
+  .wrap{max-width:560px; margin:0 auto; padding:20px 16px}
+
+  header{padding:26px 0 8px}
+  .mark{font-weight:900; font-size:30px; letter-spacing:3px; line-height:1}
+  .mark em{font-style:normal; color:var(--accent)}
+  .tag{color:var(--muted); margin-top:6px; font-size:14px}
+
+  .card{background:var(--card); border:1px solid var(--line); border-radius:16px;
+    padding:16px; margin-top:16px}
+  .label{font-size:11px; font-weight:800; letter-spacing:1.6px; color:var(--muted);
+    text-transform:uppercase; margin-bottom:10px}
+
+  .seg{display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px}
+  .seg button{background:var(--card2); border:1px solid var(--line); color:var(--text);
+    padding:14px 4px; border-radius:12px; font-weight:800; font-size:14px;
+    letter-spacing:.5px; cursor:pointer}
+  .seg button.active{background:var(--accent); border-color:var(--accent); color:#fff}
+
+  .drop{border:2px dashed var(--line); border-radius:14px; padding:26px 14px;
+    text-align:center; cursor:pointer; margin-top:2px}
+  .drop.has{border-color:var(--ok); border-style:solid}
+  .drop .big{font-weight:800; font-size:16px}
+  .drop .sub{color:var(--muted); font-size:13px; margin-top:4px}
+  #fileMeta{font-size:13px; color:var(--ok); margin-top:8px; word-break:break-all}
+
+  .cta{width:100%; margin-top:16px; background:var(--accent); color:#fff; border:0;
+    padding:16px; border-radius:14px; font-size:17px; font-weight:900;
+    letter-spacing:.8px; cursor:pointer}
+  .cta:disabled{background:#2a2f37; color:#6a7381; cursor:not-allowed}
+
+  /* progress */
+  #progress{display:none}
+  .bar{height:6px; background:var(--card2); border-radius:3px; overflow:hidden; margin-top:12px}
+  .bar i{display:block; height:100%; width:35%; background:var(--accent); border-radius:3px;
+    animation:slide 1.2s ease-in-out infinite}
+  @keyframes slide{0%{margin-left:-35%}100%{margin-left:100%}}
+  #stage{margin-top:10px; color:var(--muted); font-size:14px; min-height:20px}
+
+  /* results */
+  #result{display:none}
+  .coach{white-space:pre-wrap; font-size:15.5px}
+  .chip{display:inline-block; font-size:11px; font-weight:800; letter-spacing:1px;
+    padding:3px 8px; border-radius:20px; background:var(--card2); color:var(--muted);
+    margin-top:12px}
+  .frames{display:flex; gap:8px; overflow-x:auto; padding-bottom:4px;
+    -webkit-overflow-scrolling:touch}
+  .frames figure{margin:0; flex:0 0 auto; width:120px}
+  .frames img{width:120px; height:150px; object-fit:cover; border-radius:10px;
+    border:1px solid var(--line)}
+  .frames figcaption{font-size:11px; color:var(--muted); margin-top:4px; text-align:center}
+  .finding{border-left:3px solid var(--muted); background:var(--card2);
+    border-radius:0 10px 10px 0; padding:10px 12px; margin-top:8px; font-size:14px}
+  .finding b{display:block; font-size:13px; letter-spacing:.4px}
+  .finding.high{border-color:var(--bad)} .finding.high b{color:var(--bad)}
+  .finding.medium{border-color:var(--warn)} .finding.medium b{color:var(--warn)}
+  .finding.low{border-color:var(--muted)}
+  .good{color:var(--ok); font-size:14px; margin-top:8px}
+  details{margin-top:12px}
+  summary{color:var(--muted); font-size:13px; font-weight:700; cursor:pointer}
+  table{width:100%; border-collapse:collapse; margin-top:8px; font-size:13px}
+  td,th{padding:6px 8px; border-bottom:1px solid var(--line); text-align:left}
+  th{color:var(--muted); font-weight:700}
+
+  #error{display:none; border-color:var(--bad)}
+  #error .msg{color:var(--bad); font-weight:700}
+  #error .detail{color:var(--muted); font-size:13px; margin-top:6px; word-break:break-all}
+
+  .tips{color:var(--muted); font-size:13px}
+  .tips li{margin-top:4px}
+  .ghost{width:100%; margin-top:14px; background:transparent; border:1px solid var(--line);
+    color:var(--text); padding:13px; border-radius:12px; font-weight:800; cursor:pointer}
+  footer{color:#5b6470; font-size:12px; text-align:center; margin-top:26px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="mark">TRUE<em>STRENGTH</em></div>
+    <div class="tag">Send your lift. Get coached — like a training partner who never misses a frame.</div>
+  </header>
+
+  <div id="setup">
+    <div class="card">
+      <div class="label">1 · Your lift</div>
+      <div class="seg" id="seg">
+        <button data-ex="squat">SQUAT</button>
+        <button data-ex="bench">BENCH</button>
+        <button data-ex="deadlift">DEADLIFT</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="label">2 · Your video</div>
+      <div class="drop" id="drop">
+        <div class="big">Tap to record or choose a video</div>
+        <div class="sub">5–15 seconds · 1–3 reps · film from the side · full body in frame</div>
+        <div id="fileMeta"></div>
+      </div>
+      <input type="file" id="file" accept="video/*" hidden>
+    </div>
+
+    <button class="cta" id="go" disabled>ANALYZE MY LIFT</button>
+
+    <div class="card" id="progress">
+      <div class="label">Analyzing</div>
+      <div class="bar"><i></i></div>
+      <div id="stage"></div>
+    </div>
+
+    <div class="card" id="error">
+      <div class="msg" id="errMsg"></div>
+      <div class="detail" id="errDetail"></div>
+    </div>
+  </div>
+
+  <div id="result">
+    <div class="card">
+      <div class="label">Coach's call</div>
+      <div class="coach" id="coach"></div>
+      <span class="chip" id="modelChip"></span>
+    </div>
+
+    <div class="card">
+      <div class="label">The frames Claude watched</div>
+      <div class="frames" id="frameStrip"></div>
+    </div>
+
+    <div class="card" id="findingsCard">
+      <div class="label">Biomechanical findings</div>
+      <div id="findings"></div>
+      <div id="goods"></div>
+      <details id="anglesWrap">
+        <summary>Angle summary</summary>
+        <table id="angles"><tr><th>Joint</th><th>Min</th><th>Max</th><th>Range</th></tr></table>
+      </details>
+    </div>
+
+    <button class="ghost" id="again">ANALYZE ANOTHER LIFT</button>
+  </div>
+
+  <div class="card">
+    <div class="label">Filming tips</div>
+    <ul class="tips">
+      <li>Side angle (sagittal) for squat & deadlift; front or 45° for bench</li>
+      <li>Whole body visible, steady phone, decent light</li>
+      <li>One lifter in frame; avoid very baggy clothing</li>
+    </ul>
+  </div>
+
+  <footer>True Strength · MediaPipe measures, Claude coaches · your video is analyzed and discarded</footer>
+</div>
+
+<script>
+  const $ = id => document.getElementById(id);
+  let exercise = null, file = null;
+
+  // exercise segmented control
+  $('seg').addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    [...$('seg').children].forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    exercise = b.dataset.ex;
+    sync();
+  });
+
+  // file picker
+  $('drop').addEventListener('click', () => $('file').click());
+  $('file').addEventListener('change', () => {
+    const f = $('file').files[0]; if (!f) return;
+    const mb = f.size / 1048576;
+    if (mb > 60) {
+      $('fileMeta').textContent = `Too large (${mb.toFixed(0)}MB) — max 60MB. Trim to 5–15s.`;
+      $('drop').classList.remove('has'); file = null; sync(); return;
+    }
+    file = f;
+    $('fileMeta').textContent = `${f.name} · ${mb.toFixed(1)}MB`;
+    $('drop').classList.add('has');
+    sync();
+  });
+
+  function sync(){ $('go').disabled = !(exercise && file); }
+
+  const STAGES = [
+    [0,    'Uploading your video…'],
+    [3000, 'Extracting frames…'],
+    [7000, 'Estimating pose — 33 landmarks per frame…'],
+    [13000,'Checking biomechanics…'],
+    [18000,'Claude is watching your lift…'],
+    [30000,'Almost there — writing your coaching…']
+  ];
+  let stageTimers = [];
+
+  $('go').addEventListener('click', async () => {
+    $('go').disabled = true;
+    $('error').style.display = 'none';
+    $('progress').style.display = 'block';
+    stageTimers = STAGES.map(([t, msg]) => setTimeout(() => $('stage').textContent = msg, t));
+
+    const fd = new FormData();
+    fd.append('video', file);
+    fd.append('exercise', exercise);
+
+    try {
+      const res = await fetch('/api/analyze', { method: 'POST', body: fd });
+      const data = await res.json();
+      if (data.error) return showError(data.error, data.detail);
+      render(data);
+    } catch (err) {
+      showError('Could not reach the analysis server.', String(err));
+    } finally {
+      stageTimers.forEach(clearTimeout);
+      $('progress').style.display = 'none';
+      $('go').disabled = false;
+    }
+  });
+
+  function showError(msg, detail){
+    $('errMsg').textContent = msg;
+    $('errDetail').textContent = detail || '';
+    $('error').style.display = 'block';
+  }
+
+  function render(d){
+    $('setup').style.display = 'none';
+    $('result').style.display = 'block';
+    window.scrollTo({top:0});
+
+    $('coach').textContent = d.feedback ||
+      ('Coaching unavailable: ' + (d.coach_error || 'unknown reason') +
+       '\n\nMeasurements and findings below still apply.');
+    $('modelChip').textContent = d.feedback ? ('coached by ' + d.model) : 'pipeline only';
+
+    // frames
+    $('frameStrip').innerHTML = '';
+    (d.frames || []).forEach(f => {
+      if (!f.image) return;
+      const fig = document.createElement('figure');
+      const img = document.createElement('img');
+      img.src = 'data:image/jpeg;base64,' + f.image;
+      img.alt = 'frame ' + f.index;
+      const cap = document.createElement('figcaption');
+      cap.textContent = `#${f.index} · ${f.phase || ''} · ${f.timestamp != null ? f.timestamp + 's' : ''}`;
+      fig.append(img, cap);
+      $('frameStrip').append(fig);
+    });
+
+    // findings
+    $('findings').innerHTML = '';
+    const fs = d.findings || [];
+    if (!fs.length) $('findings').innerHTML = '<div class="good">Rule layer found no issues on this set.</div>';
+    fs.forEach(f => {
+      const div = document.createElement('div');
+      const sev = (f.severity || 'low').toLowerCase();
+      div.className = 'finding ' + sev;
+      div.innerHTML = '<b></b><span></span>';
+      div.querySelector('b').textContent = `[${sev.toUpperCase()}] ${f.issue || f}`;
+      div.querySelector('span').textContent = f.detail || '';
+      $('findings').append(div);
+    });
+    $('goods').innerHTML = (d.good || []).map(g => `<div class="good">✓ ${g}</div>`).join('');
+
+    // angles
+    const tbl = $('angles');
+    tbl.innerHTML = '<tr><th>Joint</th><th>Min</th><th>Max</th><th>Range</th></tr>';
+    Object.entries(d.angle_summary || {}).forEach(([j, a]) => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${j.replaceAll('_',' ')}</td><td>${a.min}°</td><td>${a.max}°</td><td>${a.range}°</td>`;
+      tbl.append(tr);
+    });
+  }
+
+  $('again').addEventListener('click', () => {
+    $('result').style.display = 'none';
+    $('setup').style.display = 'block';
+    file = null; $('file').value = '';
+    $('fileMeta').textContent = '';
+    $('drop').classList.remove('has');
+    sync();
+    window.scrollTo({top:0});
+  });
+</script>
+</body>
+</html>
