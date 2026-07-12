@@ -9,9 +9,20 @@ plugin uses:
     → joint angles + phase detection → biomechanical rules (observations only)
     → Claude sees the measurements AND the frames → coaching feedback
 
-Run via ./web/run.sh (creates venv, installs deps, downloads pose model).
-Requires ANTHROPIC_API_KEY for the coaching step; without it the endpoint
-still returns measurements + findings, just no coach write-up.
+Endpoints (all JSON):
+    POST /api/upload            multipart {video, exercise} → {job_id}
+    GET  /api/result/{job_id}   → {status: processing|done|error, ...result}
+    POST /api/analyze           multipart {video, exercise} → result (sync)
+    GET  /api/health
+
+Auth (optional): set TRUESTRENGTH_TOKEN and every /api/* call must carry it
+as an `X-API-Key` header or `?key=` query param. Set it whenever you expose
+the server beyond localhost (e.g. via ./web/tunnel.sh) so strangers can't
+spend your Anthropic credits.
+
+Run via ./web/run.sh (local) or ./web/tunnel.sh (public URL via ngrok).
+Requires ANTHROPIC_API_KEY for the coaching step; without it the endpoints
+still return measurements + findings, just no coach write-up.
 """
 
 from __future__ import annotations
@@ -23,9 +34,12 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
+import time
+import uuid
 from pathlib import Path
 
-from fastapi import FastAPI, File, Form, UploadFile
+from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -36,10 +50,25 @@ SOUL_PATH = REPO_ROOT / "config" / "SOUL.md"
 
 DEFAULT_MODEL = os.environ.get("TRUESTRENGTH_MODEL", "claude-sonnet-5")
 MAX_UPLOAD_MB = int(os.environ.get("TRUESTRENGTH_MAX_MB", "60"))
+API_TOKEN = os.environ.get("TRUESTRENGTH_TOKEN", "")
 MAX_FRAMES = 8
 EXERCISES = {"squat", "bench", "deadlift"}
 
 app = FastAPI(title="True Strength")
+
+# ── Auth ──────────────────────────────────────────────────────────────────
+def unauthorized(request: Request) -> JSONResponse | None:
+    """Return a 401 response if a token is configured and missing/wrong."""
+    if not API_TOKEN:
+        return None
+    supplied = request.headers.get("x-api-key") or request.query_params.get("key")
+    if supplied == API_TOKEN:
+        return None
+    return JSONResponse(
+        {"error": "Unauthorized. Pass the access key as ?key=... or X-API-Key header."},
+        status_code=401,
+    )
+
 
 # ── Claude system prompt ──────────────────────────────────────────────────
 WEB_ADDENDUM = """
@@ -213,19 +242,157 @@ def coach_with_claude(summary: str, frame_images: list[bytes]) -> tuple[str | No
         return None, f"Claude call failed: {e}"
 
 
+# ── Core processing (shared by sync + async paths) ────────────────────────
+def process_video(video_path: str, exercise: str, workdir: str) -> dict:
+    """Full flow: pipeline → frames → Claude. Returns the response payload."""
+    frames_dir = os.path.join(workdir, "frames")
+    result = run_pipeline(video_path, exercise, frames_dir)
+    if result.get("error"):
+        return {"error": result["error"], "detail": result.get("detail")}
+
+    frame_images: list[bytes] = []
+    ui_frames: list[dict] = []
+    for f in result.get("frames", []):
+        entry = {
+            "index": f.get("frame_index"),
+            "timestamp": f.get("timestamp_seconds"),
+            "phase": f.get("phase"),
+            "pose_detected": f.get("pose_detected"),
+        }
+        path = f.get("image_path")
+        if path and os.path.exists(path):
+            data = open(path, "rb").read()
+            frame_images.append(data)
+            entry["image"] = base64.b64encode(data).decode()
+        ui_frames.append(entry)
+
+    summary = format_for_llm(result, exercise)
+    feedback, coach_error = coach_with_claude(summary, frame_images)
+
+    return {
+        "feedback": feedback,
+        "coach_error": coach_error,
+        "model": DEFAULT_MODEL,
+        "exercise": exercise,
+        "video_info": result.get("video_info"),
+        "frames": ui_frames,
+        "findings": (result.get("analysis") or {}).get("findings", []),
+        "good": (result.get("analysis") or {}).get("good", []),
+        "angle_summary": result.get("angle_summary"),
+    }
+
+
+async def save_upload(video: UploadFile, workdir: str) -> str | JSONResponse:
+    """Stream the upload to disk with a size cap. Returns path or error response."""
+    suffix = Path(video.filename or "video.mp4").suffix or ".mp4"
+    video_path = os.path.join(workdir, f"upload{suffix}")
+    size = 0
+    with open(video_path, "wb") as out:
+        while chunk := await video.read(1024 * 1024):
+            size += len(chunk)
+            if size > MAX_UPLOAD_MB * 1024 * 1024:
+                return JSONResponse(
+                    {"error": f"Video too large (max {MAX_UPLOAD_MB}MB). "
+                              "Trim to 5-15 seconds — 1-3 reps is ideal."}
+                )
+            out.write(chunk)
+    return video_path
+
+
+# ── Async job store ───────────────────────────────────────────────────────
+JOBS: dict[str, dict] = {}
+JOBS_LOCK = threading.Lock()
+JOB_TTL_SECONDS = 3600
+
+
+def _prune_jobs() -> None:
+    now = time.time()
+    with JOBS_LOCK:
+        stale = [k for k, v in JOBS.items() if now - v["created"] > JOB_TTL_SECONDS]
+        for k in stale:
+            JOBS.pop(k, None)
+
+
+def _run_job(job_id: str, video_path: str, exercise: str, workdir: str) -> None:
+    try:
+        payload = process_video(video_path, exercise, workdir)
+        status = "error" if payload.get("error") else "done"
+        with JOBS_LOCK:
+            if job_id in JOBS:
+                JOBS[job_id].update(status=status, result=payload)
+    except Exception as e:
+        with JOBS_LOCK:
+            if job_id in JOBS:
+                JOBS[job_id].update(status="error", result={"error": str(e)})
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
 # ── Routes ────────────────────────────────────────────────────────────────
 @app.get("/api/health")
-def health():
+def health(request: Request):
+    if resp := unauthorized(request):
+        return resp
     return {
         "ok": True,
         "model": DEFAULT_MODEL,
         "anthropic_key": bool(os.environ.get("ANTHROPIC_API_KEY")),
+        "auth_required": bool(API_TOKEN),
         "max_upload_mb": MAX_UPLOAD_MB,
     }
 
 
+@app.post("/api/upload")
+async def upload(request: Request, video: UploadFile = File(...), exercise: str = Form(...)):
+    """Async: accept the video, return a job_id immediately, analyze in background.
+
+    Poll GET /api/result/{job_id} every few seconds until status is done/error.
+    Designed for mobile/flaky connections — the upload completes fast and the
+    long analysis doesn't hold a connection open.
+    """
+    if resp := unauthorized(request):
+        return resp
+    exercise = exercise.strip().lower()
+    if exercise not in EXERCISES:
+        return JSONResponse(
+            {"error": f"Unknown exercise '{exercise}'. Use squat, bench, or deadlift."}
+        )
+
+    _prune_jobs()
+    workdir = tempfile.mkdtemp(prefix="truestrength-")
+    saved = await save_upload(video, workdir)
+    if isinstance(saved, JSONResponse):
+        shutil.rmtree(workdir, ignore_errors=True)
+        return saved
+
+    job_id = uuid.uuid4().hex[:12]
+    with JOBS_LOCK:
+        JOBS[job_id] = {"status": "processing", "created": time.time(), "result": None}
+    threading.Thread(
+        target=_run_job, args=(job_id, saved, exercise, workdir), daemon=True
+    ).start()
+    return JSONResponse({"job_id": job_id, "status": "processing",
+                         "poll": f"/api/result/{job_id}"})
+
+
+@app.get("/api/result/{job_id}")
+def result(job_id: str, request: Request):
+    if resp := unauthorized(request):
+        return resp
+    with JOBS_LOCK:
+        job = JOBS.get(job_id)
+        if not job:
+            return JSONResponse({"error": "Unknown or expired job_id"}, status_code=404)
+        if job["status"] == "processing":
+            return {"status": "processing"}
+        return {"status": job["status"], **(job["result"] or {})}
+
+
 @app.post("/api/analyze")
-async def analyze(video: UploadFile = File(...), exercise: str = Form(...)):
+async def analyze(request: Request, video: UploadFile = File(...), exercise: str = Form(...)):
+    """Sync: upload → full result in one response. Simple for curl/scripts."""
+    if resp := unauthorized(request):
+        return resp
     exercise = exercise.strip().lower()
     if exercise not in EXERCISES:
         return JSONResponse(
@@ -234,58 +401,10 @@ async def analyze(video: UploadFile = File(...), exercise: str = Form(...)):
 
     workdir = tempfile.mkdtemp(prefix="truestrength-")
     try:
-        # Save upload with a size cap
-        suffix = Path(video.filename or "video.mp4").suffix or ".mp4"
-        video_path = os.path.join(workdir, f"upload{suffix}")
-        size = 0
-        with open(video_path, "wb") as out:
-            while chunk := await video.read(1024 * 1024):
-                size += len(chunk)
-                if size > MAX_UPLOAD_MB * 1024 * 1024:
-                    return JSONResponse(
-                        {"error": f"Video too large (max {MAX_UPLOAD_MB}MB). "
-                                  "Trim to 5-15 seconds — 1-3 reps is ideal."}
-                    )
-                out.write(chunk)
-
-        frames_dir = os.path.join(workdir, "frames")
-        result = run_pipeline(video_path, exercise, frames_dir)
-        if result.get("error"):
-            return JSONResponse({"error": result["error"], "detail": result.get("detail")})
-
-        # Collect frame images (for Claude + UI thumbnails)
-        frame_images: list[bytes] = []
-        ui_frames: list[dict] = []
-        for f in result.get("frames", []):
-            entry = {
-                "index": f.get("frame_index"),
-                "timestamp": f.get("timestamp_seconds"),
-                "phase": f.get("phase"),
-                "pose_detected": f.get("pose_detected"),
-            }
-            path = f.get("image_path")
-            if path and os.path.exists(path):
-                data = open(path, "rb").read()
-                frame_images.append(data)
-                entry["image"] = base64.b64encode(data).decode()
-            ui_frames.append(entry)
-
-        summary = format_for_llm(result, exercise)
-        feedback, coach_error = coach_with_claude(summary, frame_images)
-
-        return JSONResponse(
-            {
-                "feedback": feedback,
-                "coach_error": coach_error,
-                "model": DEFAULT_MODEL,
-                "exercise": exercise,
-                "video_info": result.get("video_info"),
-                "frames": ui_frames,
-                "findings": (result.get("analysis") or {}).get("findings", []),
-                "good": (result.get("analysis") or {}).get("good", []),
-                "angle_summary": result.get("angle_summary"),
-            }
-        )
+        saved = await save_upload(video, workdir)
+        if isinstance(saved, JSONResponse):
+            return saved
+        return JSONResponse(process_video(saved, exercise, workdir))
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
 

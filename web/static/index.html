@@ -170,6 +170,11 @@
   const $ = id => document.getElementById(id);
   let exercise = null, file = null;
 
+  // If the server runs with TRUESTRENGTH_TOKEN (e.g. behind a public tunnel),
+  // open the app as https://host/?key=TOKEN — the key rides along on API calls.
+  const KEY = new URLSearchParams(location.search).get('key');
+  const api = p => KEY ? p + (p.includes('?') ? '&' : '?') + 'key=' + encodeURIComponent(KEY) : p;
+
   // exercise segmented control
   $('seg').addEventListener('click', e => {
     const b = e.target.closest('button'); if (!b) return;
@@ -217,10 +222,21 @@
     fd.append('exercise', exercise);
 
     try {
-      const res = await fetch('/api/analyze', { method: 'POST', body: fd });
-      const data = await res.json();
-      if (data.error) return showError(data.error, data.detail);
-      render(data);
+      // Upload fast, then poll — survives flaky mobile connections.
+      const up = await fetch(api('/api/upload'), { method: 'POST', body: fd });
+      const job = await up.json();
+      if (job.error) return showError(job.error, job.detail);
+
+      const started = Date.now();
+      while (true) {
+        if (Date.now() - started > 240000) return showError('Timed out after 4 minutes.', 'Try a shorter clip (5–15s).');
+        await new Promise(r => setTimeout(r, 2500));
+        const res = await fetch(api('/api/result/' + job.job_id));
+        const data = await res.json();
+        if (data.status === 'processing') continue;
+        if (data.error) return showError(data.error, data.detail);
+        return render(data);
+      }
     } catch (err) {
       showError('Could not reach the analysis server.', String(err));
     } finally {

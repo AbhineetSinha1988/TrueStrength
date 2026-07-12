@@ -53,6 +53,32 @@ First run creates a venv, installs deps, and downloads the pose model (~30MB). T
 - Port: `8574`; override with `TRUESTRENGTH_PORT`
 - Videos are analyzed in a temp dir and deleted after the response
 
+### Upload from anywhere (public URL)
+
+```bash
+./web/tunnel.sh   # requires ngrok (authed); prints https://xxxx.ngrok…/?key=TOKEN
+```
+
+Starts the server behind an [ngrok](https://ngrok.com) tunnel with a generated access token — open the printed URL on your phone at the gym and upload over mobile data. Every `/api/*` call must carry the token (`?key=` or `X-API-Key`), so the public URL can't be used to spend your Anthropic credits without it. Pin your own token via `TRUESTRENGTH_TOKEN`.
+
+### API
+
+| Endpoint | What it does |
+|---|---|
+| `POST /api/upload` | multipart `video` + `exercise` (squat/bench/deadlift) → `{job_id}` immediately; analysis runs in the background |
+| `GET /api/result/{job_id}` | `{status: processing}` → full result when done (feedback, frames, findings, angles) |
+| `POST /api/analyze` | same input, synchronous — blocks until the full result (simplest for scripts) |
+| `GET /api/health` | server status, model, whether auth is on |
+
+```bash
+# one-shot from a script
+curl -X POST http://localhost:8574/api/analyze -F video=@squat.mp4 -F exercise=squat
+
+# upload-then-poll (what the UI does — survives flaky mobile connections)
+curl -X POST http://localhost:8574/api/upload -F video=@squat.mp4 -F exercise=squat
+curl http://localhost:8574/api/result/<job_id>
+```
+
 ## Quick start — WhatsApp agent
 
 Requires [OpenClaw](https://docs.openclaw.ai/installation) and an Anthropic API key.
